@@ -1,0 +1,15 @@
+{
+  "name": "pdf-svg-intersection",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "run": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "private": true,
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}
