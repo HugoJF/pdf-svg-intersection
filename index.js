@@ -1,14 +1,26 @@
 import {
-    PDFDocument,
-    pushGraphicsState,
-    popGraphicsState,
-    drawSvgPath,
-    fill,
+    beginText,
     clip,
+    closePath,
+    drawSvgPath,
     endPath,
-    drawRectangle,
-    degrees,
-    rgb, setFillingColor, translate, scale
+    endText,
+    fill,
+    lineTo,
+    moveText,
+    moveTo,
+    PDFDocument,
+    popGraphicsState,
+    pushGraphicsState,
+    rgb,
+    scale,
+    setFillingColor,
+    setFontAndSize,
+    setTextRenderingMode,
+    showText,
+    StandardFonts,
+    TextRenderingMode,
+    translate
 } from 'pdf-lib'
 import * as fs from 'fs'
 
@@ -31,8 +43,11 @@ const bPaths = [
 // Create a new PDFDocument
 const pdfDoc = await PDFDocument.create()
 
+const timesRomanFont = await pdfDoc.embedFont(StandardFonts.TimesRoman)
+
 // Add a blank page to the document
 const page = pdfDoc.addPage()
+page.setFont(timesRomanFont)
 
 // removes pushGraphicsState(), popGraphicsState(), and concatTransformationMatrix()
 function rawSvg(path, options = {x: 0, y: 0, scale: 1}) {
@@ -43,69 +58,173 @@ function rawSvg(path, options = {x: 0, y: 0, scale: 1}) {
     })
 }
 
-const debugging = false;
+function floodGreen() {
+    return [
+        setFillingColor(rgb(0, 1, 0)),
+        moveTo(-99999, -99999),
+        lineTo(-99999, 99999),
+        lineTo(99999, 99999),
+        lineTo(99999, -99999),
+        closePath(),
+        fill(),
+    ]
+}
+
+function drawSvgA() {
+    return [
+        ...rawSvg(aPaths[0]),
+        ...rawSvg(aPaths[1]),
+    ]
+}
+
+function drawTextA() {
+    return [
+        beginText(),
+        setFillingColor(rgb(1, 0, 0)),
+        moveText(100, 250),
+        setFontAndSize(page.fontKey, 100),
+        showText(timesRomanFont.encodeText('HELLOOOOOOOOOOOOO')),
+        endText(),
+    ]
+}
+
+function drawSvgB() {
+    return [
+        ...rawSvg(bPaths[0]),
+        ...rawSvg(bPaths[1]),
+        ...rawSvg(bPaths[2]),
+        ...rawSvg(bPaths[3]),
+    ]
+}
+
+function drawTextB() {
+    return [
+        beginText(),
+        setFillingColor(rgb(0, 0, 1)),
+        moveText(100, 290),
+        setFontAndSize(page.fontKey, 210),
+        showText(timesRomanFont.encodeText('TEXT ALSO WORKS')),
+        endText(),
+    ]
+}
 
 page.pushOperators(...[
+    /**
+     * SETUP PHASE
+     */
     pushGraphicsState(),
 
     // ensure the SVGs fit in the page
     scale(0.5, 0.5),
     translate(page.getWidth() / 2 - viewport.width / 4, page.getHeight() / 2 + viewport.height / 4),
 
+    /**
+     * DRAWING PHASE - just draw the graphics we are diffing
+     */
+    pushGraphicsState(),
+
     // draw the first one
-    ...rawSvg(aPaths[0]),
-    ...rawSvg(aPaths[1]),
+    ...drawSvgA(),
     setFillingColor(rgb(1, 0, 0)),
     fill(),
 
     // draw the second one
-    ...rawSvg(bPaths[0]),
-    ...rawSvg(bPaths[1]),
-    ...rawSvg(bPaths[2]),
-    ...rawSvg(bPaths[3]),
+    ...drawSvgB(),
     setFillingColor(rgb(0, 0, 1)),
     fill(),
 
+    // draw the text
+    setFillingColor(rgb(0, 0, 0)),
+    ...drawTextA(),
+    ...drawTextB(),
+
+    popGraphicsState(),
+
+    /**
+     * Intersection phases: since we can't clip using paths and texts at the same at (afaik),
+     * we need to manually generate each of the 4 intersection possibilities (text vs text,
+     * path vs path, text A vs path B, text B vs path A).
+     *
+     * The whole idea here is: create the first clip (text or path) and then the second clip
+     * inside the same graphics state, effectively an AND operation. Then we flood the
+     * screen with a green rectangle to paint the intersecting areas.
+     */
+
+    /**
+     * TEXT VS TEXT
+     */
+    pushGraphicsState(),
+
+    setTextRenderingMode(TextRenderingMode.Clip),
+    ...drawTextA(),
+
+    setTextRenderingMode(TextRenderingMode.Clip),
+    ...drawTextB(),
+
+    // flood the screen with a green rectangle (that will be clipped by both masks at the same time)
+    ...floodGreen(),
+
+    popGraphicsState(),
+
+
+    /**
+     * TEXT A VS PATH B
+     */
+    pushGraphicsState(),
+
+    // setup text clipping
+    setTextRenderingMode(TextRenderingMode.Clip),
+    ...drawTextA(),
+
+    // setup second clipping path (which is being clipped by the first one)
+    ...drawSvgB(),
+    clip(),
+    endPath(),
+
+    // flood the screen with a green rectangle (that will be clipped by both masks at the same time)
+    ...floodGreen(),
+
+    popGraphicsState(),
+
+
+    /**
+     * TEXT B VS PATH A
+     */
+    pushGraphicsState(),
+
+    setTextRenderingMode(TextRenderingMode.Clip),
+    ...drawTextB(),
+
+    // setup second clipping path (which is being clipped by the first one)
+    ...drawSvgA(),
+    clip(),
+    endPath(),
+
+    // flood the screen with a green rectangle (that will be clipped by both masks at the same time)
+    ...floodGreen(),
+
+    popGraphicsState(),
+
+
+    /**
+     * PATH A VS PATH B
+     */
+    pushGraphicsState(),
 
     // setup first clipping path
-    ...rawSvg(aPaths[0]),
-    ...rawSvg(aPaths[1]),
-
-    debugging && setFillingColor(rgb(0, 1, 0)),
-    debugging && fill(),
-
-
-    !debugging && clip(),
+    ...drawSvgA(),
+    clip(),
     endPath(),
 
     // setup second clipping path (which is being clipped by the first one)
-    ...rawSvg(bPaths[0]),
-    ...rawSvg(bPaths[1]),
-    ...rawSvg(bPaths[2]),
-    ...rawSvg(bPaths[3]),
-
-    debugging && setFillingColor(rgb(0, 0, 1)),
-    debugging && fill(),
-
-    !debugging && clip(),
-    // clipEvenOdd(),
+    ...drawSvgB(),
+    clip(),
     endPath(),
 
-
     // flood the screen with a green rectangle (that will be clipped by both masks at the same time)
-    ...drawRectangle({
-        x: -9999,
-        y: -9999,
-        width: 99999,
-        height: 99999,
-        color: rgb(0, 1, 0),
-        borderWidth: 1,
-        borderColor: rgb(0, 0, 0),
-        rotate: degrees(0),
-        xSkew: degrees(0),
-        ySkew: degrees(0),
-    }),
+    ...floodGreen(),
 
+    popGraphicsState(),
     popGraphicsState(),
 ].filter(Boolean));
 
